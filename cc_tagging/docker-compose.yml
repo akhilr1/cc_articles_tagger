@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  cc_tagger:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: cc_tagger
+    cpus: 0.50
+    mem_limit: 3g
+    # restart: always
+    volumes:
+          - /home/cc_tagging/processed_doc_id.txt:/app/processed_doc_id.txt
+    networks:
+    - cc_tagger_network
+
+networks:
+  cc_tagger_network:
+    driver: bridge

@@ -1,0 +1,6 @@
+langchain_community
+langchain_openai
+elasticsearch
+pandas
+es_pandas
+python-dotenv
