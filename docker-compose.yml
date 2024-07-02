@@ -10,7 +10,7 @@ services:
     mem_limit: 3g
     # restart: always
     volumes:
-          - /home/cc_tagging/processed_doc_id.txt:/app/processed_doc_id.txt
+          - /home/cc_articles_tagger/processed_doc_id.txt:/app/processed_doc_id.txt
     networks:
     - cc_tagger_network
 
