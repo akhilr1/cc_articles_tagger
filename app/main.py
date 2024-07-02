@@ -131,6 +131,7 @@ def get_es_articles(last_processed_docid):
 def store_in_es_controverys(df):
     try:
     # Replace NaN values with appropriate defaults
+        index=os.getenv("ES_INDEX")
         
         documents = df.to_dict(orient="records")
         for doc in documents:
@@ -140,13 +141,13 @@ def store_in_es_controverys(df):
         actions = [
             {
                 "_op_type": "index",
-                "_index": "cc_classified_articles_1",
+                "_index": index,
                 "_id": doc.get("url"),
                 "_source": doc
             }
             for doc in documents
         ]
-        success, failed = bulk(es, actions=actions, index="cc_classified_articles_1")
+        success, failed = bulk(es, actions=actions, index=index)
         logger.info(f"Successfully indexed {success} documents.")
         if failed:
             logger.error(f"{failed} document(s) failed to index.")
