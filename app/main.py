@@ -13,32 +13,26 @@ from datetime import datetime
 from es_pandas import es_pandas
 from langchain_openai import AzureChatOpenAI
 from dotenv import load_dotenv
+from langchain.vectorstores import FAISS
+from langchain_community.embeddings import SentenceTransformerEmbeddings
+from langchain_core.documents import Document
+import functools
+import logging
+import time, tiktoken, faiss ,json
+from langchain_huggingface import HuggingFaceEmbeddings
+
+enc = tiktoken.get_encoding("o200k_base")
+embedding_function = SentenceTransformerEmbeddings(model_name="BAAI/bge-large-en-v1.5")
 
 load_dotenv()
 es_host=os.getenv("ES_HOST")
 
 
 es = Elasticsearch(hosts=es_host)
-
-class Classification(BaseModel):
-    sentiment: str = Field(description="The sentiment of the text")
-    sentiment_score: conint(ge=-10, le=10) = Field(..., description="The sentiment score of the text ranging from -10 to 10")
-    sentiment_justification: str = Field(description="A one-line sentence justifying the sentiment of the article")
-    company_name: str = Field(description="Company name the article is majorly about")
-    company_name_justification: str = Field(description="A one-line sentence justifying the reason for selecting the company name")
-    esg_relevance: int = Field(description="How pertinent is the text to ESG matters, on a scale from 1 to 10?")
-    published_date: str = Field(description="Published date of this article in yyyy-mm-dd")
-    title: str = Field(description="Give a title for this text")
-    financial_data_check: int = Field(description="How pertinent is the text to stock related data, on a scale from 1 to 10?")
-    company_name_registered: str = Field(description="The exact registered name of the company, expanded to full form (e.g., Ltd to Limited)")
-    company_aliases: str = Field(description="All possible aliases and variations of the company name the article is majorly about")
-
-
-
-gpt_model = "gpt-4o"
+gpt_model = os.getenv("GPT_MODEL")
 base_url = os.getenv("BASE_URL")
 api_type = "azure"
-api_version = "2024-02-01"
+api_version = os.getenv("API_VERSION")
 api_key = os.getenv("API_KEY")
 
 
@@ -48,26 +42,103 @@ openai_api_version=api_version,
 azure_deployment=gpt_model,
 openai_api_key=api_key,
 openai_api_type=api_type,
-model=gpt_model).with_structured_output(
-Classification
-        )
-
-tagging_prompt = ChatPromptTemplate.from_template(
-    """
-Extract the desired information from the following passage.
-
-Only extract the properties mentioned in the 'Classification' function.
-
-Passage:
-{input}
-"""
-)
+model=gpt_model)
 
 
-# llm = ChatOpenAI(temperature=0, model="gpt-3.5-turbo-0125").with_structured_output(
-#     Classification
-# )
-tagging_chain = tagging_prompt | llm
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def log_decorator(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        logger.info(f"Entering {func.__name__} function")
+        start_time = time.time()
+        try:
+            result = func(*args, **kwargs)
+            end_time = time.time()
+            elapsed_time = end_time - start_time
+            logger.info(f"Exiting {func.__name__} function. Time taken: {elapsed_time:.4f} seconds")
+            return result
+        except Exception as e:
+            end_time = time.time()
+            elapsed_time = end_time - start_time
+            logger.error(f"Exception in {func.__name__} after {elapsed_time:.4f} seconds: {e}")
+            raise
+    return wrapper
+
+@log_decorator
+def retrievesummary(newdb):
+    retriever=newdb.as_retriever()
+    docs = retriever.invoke("get me all data")
+
+
+    prompt = ChatPromptTemplate.from_template(
+     """
+        I need to retrieve the published date from the context. for example the passage might have something like  Last Updated : "Nov 21 2023 | 10:58 PM IST", so you should take everything after Updated as the published date.       
+        Also Summarize the following text article, ensuring all specified company names and published dates mentioned in the article are explicitly included and no essential information is omitted:
+
+        Passage:
+        {input}
+        """
+            )
+    prompt2=ChatPromptTemplate.from_template(
+        """
+         
+           Please provide a summary of the article using the following format and give output in json format:
+           1.summary: Summarize the following text article, ensuring all specified company names and published dates mentioned in the article are explicitly included and no essential information is omitted.
+           2.sentiment: Describe the overall sentiment of the article. Example: 'Positive', 'Negative', 'Neutral'.
+           3.sentiment_score: Assign a sentiment score to the article, ranging from -10 (strongly negative) to 10 (strongly positive). Example: -7 for strongly negative sentiment, 5 for moderately positive sentiment.
+           4.sentiment_justification: Provide a one-line sentence justifying the sentiment of the article. Example: 'The article highlights significant environmental damage caused by the company.'
+           5.company_name: Identify the company the article is primarily about. Example: 'Tesla'.
+           6.company_name_justification: Provide a one-line sentence justifying the reason for selecting the company name. Example: 'The article discusses Tesla's new sustainability initiatives in detail.'
+           7.esg_relevance: Rate how pertinent the text is to ESG matters, on a scale from 1 to 10. Example: 8 for highly relevant content.
+           8.published_date: State the published date of the article in yyyy-mm-dd format. Example: '2023-06-28'.
+           9.title: Provide a title for the text. Example: 'Tesla's Latest Efforts in Sustainability'.
+           10.financial_data_check: Rate how pertinent the text is to stock-related data, on a scale from 1 to 10. Example: 3 for minimally relevant content.
+           11.company_name_registered: State the exact registered name of the company, expanded to full form. Example: 'Tesla, Inc.'
+           12.company_aliases: All possible aliases and variations of the company name the article is majorly about. Example: 'TSLA, Tesla Motors'
+
+           Article:
+           {input}
+           """
+          )
+    prompt3=ChatPromptTemplate.from_template(
+        """
+          Please provide a summary of the article using the following format:
+          summary: Summarize the following text article, ensuring all specified company names and published dates mentioned in the article are explicitly included and no essential information is omitted.
+          Sentiment: Describe the overall sentiment of the article. Example: 'Positive', 'Negative', 'Neutral'.
+          Sentiment Score: Assign a sentiment score to the article, ranging from -10 (strongly negative) to 10 (strongly positive). Example: -7 for strongly negative sentiment, 5 for moderately positive sentiment.
+          Sentiment Justification: Provide a one-line sentence justifying the sentiment of the article. Example: 'The article highlights significant environmental damage caused by the company.'
+          Company Name: Identify the company the article is primarily about. Example: 'Tesla'.
+          Company Name Justification: Provide a one-line sentence justifying the reason for selecting the company name. Example: 'The article discusses Tesla's new sustainability initiatives in detail.'
+          ESG Relevance: Rate how pertinent the text is to ESG matters, on a scale from 1 to 10. Example: 8 for highly relevant content.
+          Published Date: State the published date of the article in yyyy-mm-dd format. Example: '2023-06-28'.
+          Title: Provide a title for the text. Example: 'Tesla's Latest Efforts in Sustainability'.
+          Financial Data Check: Rate how pertinent the text is to stock-related data, on a scale from 1 to 10. Example: 3 for minimally relevant content.
+          Company Name Registered: State the exact registered name of the company, expanded to full form. Example: 'Tesla, Inc.'
+          Company Aliases: List all possible aliases and variations of the company name the article is majorly about. Example: 'TSLA, Tesla Motors'
+          Article:
+          {input}
+          """
+          )
+
+
+    chain = prompt2 | llm
+    
+    """Returns the number of tokens in a text string."""
+    encoding = tiktoken.get_encoding("o200k_base")
+    num_tokens = len(encoding.encode(docs[0].page_content))
+    
+    response=chain.invoke({"input": docs[0].page_content}).dict()
+   # response['token_length']=num_tokens
+    content_dict = json.loads(response['content'])
+    content_dict['token_length'] = num_tokens
+    response['content'] = json.dumps(content_dict)
+    return response['content']
+
+
+
 
 
 ##############################################################
@@ -101,12 +172,23 @@ def clean_text_content(text):
     return cleaned_text
 ###############################################################
 
+@log_decorator
+def embedtext(text):  
+ 
+    docs=[Document(page_content=text)]
+
+    vectorstore = FAISS.from_documents(docs , embedding = embedding_function)
+    return vectorstore
+
+################################################################
+
+@log_decorator
 def get_es_articles(last_processed_docid):
     # es = Elasticsearch(hosts=es_host)
     index_name= "cc_dump_*"
     doc_limit=os.getenv("DOC_LIMIT")
     query = {
-    "size": 100,
+    "size": 10,
     "query": {
         "bool": {
             "filter": []
@@ -128,6 +210,7 @@ def get_es_articles(last_processed_docid):
     return articles_df
 #####################################################################
 
+@log_decorator
 def store_in_es_controverys(df):
     try:
     # Replace NaN values with appropriate defaults
@@ -188,6 +271,7 @@ def set_docid(file_path, doc_id):
 
     
 ######################################################################
+@log_decorator
 def main():
     file_path = "/app/processed_doc_id.txt"
 
@@ -201,17 +285,16 @@ def main():
             for i, (index, row) in enumerate(articles.iterrows()):
                 cc_content=row["content"]
                 doc_id=row["doc_id"]
-                clean_text=clean_text_content(cc_content)                        
+                clean_text=clean_text_content(cc_content)
 
 
                 if len(clean_text)<15000:
                     try:
-
-                        response=tagging_chain.invoke({"input": clean_text}).dict()
+                        vectorstore=embedtext(clean_text)
+                        response = json.loads(retrievesummary(vectorstore))
                         print(f"length={len(articles)} index={index}")
-                        # print(clean_text)
-                        print(response)
-                        articles_extracted.loc[index,'content'] = clean_text
+                        print(f"Response: {response}")
+                        articles_extracted.loc[index,'content'] = response['summary']
                         articles_extracted.loc[index,'sentiment'] = response['sentiment']
                         articles_extracted.loc[index,'company_names'] = response['company_name']
                         articles_extracted.loc[index,'esg_relevance'] = response['esg_relevance']
@@ -222,6 +305,8 @@ def main():
                         articles_extracted.loc[index,'financial_data_check'] = response['financial_data_check']
                         articles_extracted.loc[index,'company_name_registered'] = response['company_name_registered']
                         articles_extracted.loc[index,'company_aliases'] = response['company_aliases']
+                        articles_extracted.loc[index,'token_length'] = response['token_length']
+
 
 
 
@@ -243,10 +328,6 @@ def main():
             else:
                 logger.info("No CC articles found")
             break
-    
-
-  
 
 if __name__ == "__main__":
     main()
-

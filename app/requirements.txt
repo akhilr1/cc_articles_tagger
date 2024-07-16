@@ -4,3 +4,7 @@ elasticsearch
 pandas
 es_pandas
 python-dotenv
+tiktoken
+faiss-gpu
+sentence-transformers
+langchain-huggingface
