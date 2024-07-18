@@ -291,21 +291,24 @@ def main():
                 if len(clean_text)<15000:
                     try:
                         vectorstore=embedtext(clean_text)
-                        response = json.loads(retrievesummary(vectorstore))
-                        print(f"length={len(articles)} index={index}")
-                        print(f"Response: {response}")
-                        articles_extracted.loc[index,'content'] = response['summary']
-                        articles_extracted.loc[index,'sentiment'] = response['sentiment']
-                        articles_extracted.loc[index,'company_names'] = response['company_name']
-                        articles_extracted.loc[index,'esg_relevance'] = response['esg_relevance']
-                        if response['published_date']:
-                            articles_extracted.loc[index, 'published_date'] = datetime.strptime(response['published_date'], "%Y-%m-%d").date()
-                        articles_extracted.loc[index,'title'] = response['title']
-                        # articles_extracted.loc[index,'controvesry_category'] = response['controvesry_category']
-                        articles_extracted.loc[index,'financial_data_check'] = response['financial_data_check']
-                        articles_extracted.loc[index,'company_name_registered'] = response['company_name_registered']
-                        articles_extracted.loc[index,'company_aliases'] = response['company_aliases']
-                        articles_extracted.loc[index,'token_length'] = response['token_length']
+                        if vectorstore:
+                            response = json.loads(retrievesummary(vectorstore))
+                            print(f"length={len(articles)} index={index}")
+                            print(f"Response: {response}")
+                            articles_extracted.loc[index,'content'] = response['summary']
+                            articles_extracted.loc[index,'sentiment'] = response['sentiment']
+                            articles_extracted.loc[index,'company_names'] = response['company_name']
+                            articles_extracted.loc[index,'esg_relevance'] = response['esg_relevance']
+                            if response['published_date']:
+                                articles_extracted.loc[index, 'published_date'] = datetime.strptime(response['published_date'], "%Y-%m-%d").date()
+                            articles_extracted.loc[index,'title'] = response['title']
+                            # articles_extracted.loc[index,'controvesry_category'] = response['controvesry_category']
+                            articles_extracted.loc[index,'financial_data_check'] = response['financial_data_check']
+                            articles_extracted.loc[index,'company_name_registered'] = response['company_name_registered']
+                            articles_extracted.loc[index,'company_aliases'] = response['company_aliases']
+                            articles_extracted.loc[index,'token_length'] = response['token_length']
+                        else:
+                            logger.error(f"No vectorstore value for index={index}")
 
 
 
