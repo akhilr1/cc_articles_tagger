@@ -5,6 +5,6 @@ pandas
 es_pandas
 python-dotenv
 tiktoken
-faiss-cpu
+faiss-gpu
 sentence-transformers
 langchain-huggingface
