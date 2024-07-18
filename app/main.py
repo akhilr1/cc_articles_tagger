@@ -293,7 +293,7 @@ def main():
                         vectorstore=embedtext(clean_text)
                         if vectorstore:
                             response = json.loads(retrievesummary(vectorstore))
-                            print(f"length={len(articles)} index={index}")
+                            print(f"length={len(articles)} index={index} doc_id={doc_id}")
                             print(f"Response: {response}")
                             articles_extracted.loc[index,'content'] = response['summary']
                             articles_extracted.loc[index,'sentiment'] = response['sentiment']
